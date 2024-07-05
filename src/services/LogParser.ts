@@ -1,10 +1,10 @@
 import fs from 'fs';
 import readline from 'readline';
-import { GameData } from '../models/GameData';
-import { ProcessedGame } from '../models/ProcessedGame';
-import { LineHandler } from '../handlers/LineHandler';
-import { LineType } from '../utils/LineType';
-import { MeansOfDeath } from '../utils/MeansOfDeath';
+import {GameData} from '../models/GameData';
+import {ProcessedGame} from '../models/ProcessedGame';
+import {LineHandler} from '../handlers/LineHandler';
+import {LineType} from '../utils/LineType';
+import {MeansOfDeath} from '../utils/MeansOfDeath';
 
 interface PlayerStats {
     nickname: string;
@@ -13,44 +13,39 @@ interface PlayerStats {
 }
 
 export class LogParser {
-    private gameData: GameData = { kills: [], userInfoChanged: [] };
+    private gameData: GameData = {kills: [], userInfoChanged: []};
     private gameId = 1;
-    private processedData: Map<string, ProcessedGame> = new Map();
+    public processedData: Map<string, ProcessedGame> = new Map();
     private lineHandler = new LineHandler();
 
     public parse(filePath: string): void {
-        const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
-        const rl = readline.createInterface({ input: stream });
+        const stream = fs.createReadStream(filePath, {encoding: 'utf8'});
+        const rl = readline.createInterface({input: stream});
 
         rl.on('line', (line) => this.handleLine(line));
         rl.on('close', () => this.handleClose());
     }
 
     private handleLine(line: string): void {
-        if (line.includes(LineType.InitGame)) {
+        if (line.includes(LineType.ShutdownGame)) {
+            this.processedData.set(`game_${this.gameId}`, this.processGame(this.gameId, this.gameData));
+            this.clearGameData();
+        } else if (line.includes(LineType.InitGame)) {
             if (this.gameData.kills.length > 0 || this.gameData.userInfoChanged.length > 0) {
                 this.processedData.set(`game_${this.gameId}`, this.processGame(this.gameId, this.gameData));
-                this.gameData = { kills: [], userInfoChanged: [] };
-                this.gameId++;
+                this.clearGameData();
             }
-        } else if (line.includes(LineType.ShutdownGame)) {
-            this.processedData.set(`game_${this.gameId}`, this.processGame(this.gameId, this.gameData));
-            this.gameData = { kills: [], userInfoChanged: [] };
-            this.gameId++;
         } else {
             this.lineHandler.handleLine(line, this.gameData);
         }
     }
 
     private handleClose(): void {
-        const end = process.hrtime();
         console.log(Object.fromEntries(this.processedData));
-        console.log(`${end[0] * 1e9 + end[1]} nanoseconds`);
     }
 
     public processGame(gameId: number, gameData: GameData): ProcessedGame {
         const totalKills = gameData.kills.length;
-        const killMeansSet = new Set<string>();
         const kills: Record<string, number> = {};
         const deaths: Record<string, number> = {};
         const killsByMeans: Record<string, number> = {};
@@ -108,6 +103,7 @@ export class LogParser {
 
     private updateKillsAndDeaths(kills: Record<string, number>, deaths: Record<string, number>, killer: string, victim: string): void {
         if (killer === 'unknown' || killer === victim) {
+            kills[victim] = (kills[victim] || 0) - 1;
             deaths[victim] = (deaths[victim] || 0) + 1;
         } else {
             kills[killer] = (kills[killer] || 0) + 1;
@@ -117,5 +113,10 @@ export class LogParser {
 
     private formatScoreboard(scoreboard: PlayerStats[]): string[] {
         return ["Nickname | Kills | Deaths", ...scoreboard.map((player) => `${player.nickname} | ${player.kills} | ${player.deaths}`)]
+    }
+
+    private clearGameData(): void {
+        this.gameData = {kills: [], userInfoChanged: []};
+        this.gameId++;
     }
 }
